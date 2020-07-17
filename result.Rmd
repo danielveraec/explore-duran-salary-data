@@ -1,0 +1,169 @@
+---
+title: "Explorando Datos de Salarios Municipio Duran"
+author: "Daniel Vera"
+date: "16/7/2020"
+output: 
+  html_document: 
+    highlight: pygments
+    toc: yes
+---
+
+# Análisis exploratorio de datos de salarios del Municipio de Duran-Ecuador
+
+El dataset fue recopilados de los informes de transaparencia del [Municipio de Duran](http://www.duran.gob.ec/municipio/inicio/index.php?option=com_k2&view=itemlist&layout=category&task=category&id=132&Itemid=726)
+
+Tome como referencia un trabajo en Kaggle que explora los datos de [salarios en San Francisco](https://www.kaggle.com/msjgriffiths/explore-sf-salary-data).
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r warning=F, comment=F, message=F}
+library(dplyr)
+library(RSQLite)
+library(tidyr)
+library(ggplot2)
+library(readr)
+library(stringr)
+library(scales)
+library(mixtools)
+```
+## Data
+
+El archivo se encuentra en el directorio `../input`.
+
+```{r ListData}
+list.files("./input")
+```
+
+Chequeamos el archivo:
+
+```{r cars}
+data_csv <- read_csv2("./input/salarios.csv", na=c("Not Provided"))
+(glimpse(data_csv))
+```
+
+Limitaremos nuestro analisis al año mas reciente
+
+```{r}
+data <- data_csv %>% filter(anio > 2015)
+```
+
+## Análisis exploratorio de datos
+Lo primero que me gustaría saber es cómo son las variables. 
+
+### Variables No numericas
+Para las variables no numéricas (como "puesto") me gustaría saber:
+
+* ¿Cuántas valores únicos hay?
+* ¿Cuál es la frecuencia relativa?
+
+```{r}
+non_numeric_vars <- names(data)[!sapply(data, is.numeric)]
+data %>% 
+    select(one_of(non_numeric_vars)) %>%
+    summarise_each(funs(unique_vars = length(unique(.))))
+```
+### Puesto de trabajo
+
+Quiero prestar especial atención a `puesto`. ¿Qué información tenemos?
+
+```{r}
+data %>%
+    group_by(puesto) %>%
+    summarise(Frequency = n()) %>%
+    arrange(desc(Frequency)) %>%
+    head
+```
+¿Cuántos títulos de trabajo sólo ocurren una vez?
+
+```{r}
+data %>%
+    group_by(puesto) %>%
+    summarise(Frequency = n()) %>%
+    mutate(OccursOnce = Frequency == 1) %>%
+    group_by(OccursOnce) %>%
+    summarise(Total = n())
+```
+
+Ok, la mayoria de puestos ocurren mas de una vez. ¿Cuáles son algunos de los que sólo ocurren una vez?
+
+```{r}
+data %>% 
+    filter(!duplicated(puesto)) %>%
+    head()
+```
+
+Algunos parecen cargos altos. ¿Cómo se compara la paga con la de las personas que comparten un título?
+
+```{r}
+data %>%
+    mutate(SharesTitle = duplicated(puesto)) %>%
+    ggplot(aes(x = remuneracionMensual)) + 
+    geom_density(aes(fill = SharesTitle), alpha = 0.6)
+```
+### Variables numericas
+
+Veamos un resumen de las variables numericas.
+
+```{r}
+data %>%
+    select(-one_of(non_numeric_vars)) %>%
+    summary
+```
+OK. Me llama la atencion las cifras de `horasExtras`
+
+Quienes tienen horas extras?
+
+```{r}
+data %>% 
+    filter(horasExtras > 0) 
+```
+
+13 personas tienen pagos por sobretiempo. La mayoria son policias municipales.
+
+### Sueldos y Regimen Laboral
+
+Veamos una rapida mirada.
+
+```{r}
+data %>%
+    ggplot(aes(x = remuneracionMensual)) +
+    geom_density(aes(fill = gradoJerarquico), alpha = 0.6)
+```
+
+### Grados Jerarquicos
+
+Tenemos la columna `gradoJerarquico` que al parecer indica el nivel de los empleados. Hechemos un vistazo.
+
+```{r}
+
+# Subset down
+data %>%
+    filter(!is.na(gradoJerarquico)) ->
+    jobs_with_levels
+
+# Peek
+(head(jobs_with_levels))
+
+jobs_with_levels %>%
+    group_by(gradoJerarquico) %>%
+    summarise(People = n(), Titles = n_distinct(puesto))
+    
+```
+Al parecer, tenemos la mayoria se encuentra en los niveles SP1 y SPA3.
+
+Bueno, ¿cómo se comparan los niveles?
+
+```{r}
+data %>%
+    mutate(Level = ifelse(is.na(gradoJerarquico), "No Level", gradoJerarquico)) %>% 
+    ggplot(aes(x = remuneracionMensual)) +
+    geom_density(aes(fill = Level), alpha = 0.6) +
+    facet_wrap(~Level, scales="free_y")
+```
+
+## Consluciones
+
+Soy muy nuevo en el mundo de la ciencia de datos y analisis estadisticos. 
+La idea con este ejercicio es tratar de mejorar el analisis con cada nuevo conocimiento adquirido y aplicarlo en este conjunto de datos que he recopilado y que estare actualizando con los datos que vayan surgiendo.
+
